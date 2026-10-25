@@ -673,8 +673,28 @@ const url = getRealUrl(CLYTIERS_API_URL);
       }))
       .filter((item) => item.name);
 
-    // [変更なし] Top 50表示と検索用データの更新
-    renderRanking(clytiersPlayers);
+const TIER_ORDER = [
+"HT1", "LT1",
+"HT2", "LT2",
+"HT3", "LT3",
+"HT4", "LT4",
+"HT5", "LT5"
+];
+
+const tierRank = Object.fromEntries(
+TIER_ORDER.map((tier, index) => [tier, index])
+);
+
+clytiersPlayers.sort((a, b) => {
+const rankA =
+tierRank[a.tier.trim().toUpperCase()] ?? 999;
+const rankB =
+tierRank[b.tier.trim().toUpperCase()] ?? 999;
+
+return rankA - rankB;
+});
+
+renderRanking(clytiersPlayers);
   };
 
   // ==========================================================
@@ -689,10 +709,10 @@ const url = getRealUrl(CLYTIERS_API_URL);
     rankingScript = document.createElement("script");
     rankingScript.async = true;
 
-    rankingScript.src =
-      CLYTIERS_API_URL +
-      "?callback=clytiersTierCallback&v=" +
-      Date.now();
+rankingScript.src =
+  url +
+  "?callback=clytiersTierCallback&v=" +
+  Date.now();
 
     rankingScript.onerror = function() {
       failRanking(
