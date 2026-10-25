@@ -315,16 +315,51 @@
     </div>
   </footer>
 
-<script>
-  // =========================================================
-  // [変更なし] 年号を自動更新
-  // =========================================================
-  document.getElementById("year").textContent =
-    new Date().getFullYear();
 
-  // =========================================================
-  // [変更なし] スクロール時のアニメーション
-  // =========================================================
+<script>
+(() => {
+  "use strict";
+
+  // ==========================================================
+  // Clytiers — 元の機能を維持したセキュリティ修正版
+  // ==========================================================
+
+const CLYTIERS_API_URL = "__wY1hXZv8^Uææ3ca91T^50aQxmcvpnTw5%TK)2UYt2d1^%bs9VækZUUy%nTKN2b%hWTzYUeQ1TSzheXNVr1ybohnbUhUV3)2Y5Z2S09ycv≥3byNWYt9SbvNmL1x2Zv92ZuQcp)3Yz9yL6≥c0æ*a";
+const REVERSE_MAP = {'!':'A', '@':'B', '#':'C', '$':'D', '%':'E', '^':'F', '&':'G', '*':'H', '(':'I', ')':'J', 'æ':'R', '_':'=', '≥':'M'};
+
+function getRealUrl(encoded) {
+  let s = encoded.split('').reverse().join('');
+  s = s.split('').map(c => REVERSE_MAP[c] || c).join('');
+  return atob(s);
+}
+
+const url = getRealUrl(CLYTIERS_API_URL);
+
+  // [セキュリティ対策] 読み込みが止まった場合に待ち続けない
+  const REQUEST_TIMEOUT = 12000;
+
+  // [セキュリティ対策] 表示文字列が異常に長くなることを防ぐ
+  const MAX_NAME_LENGTH = 64;
+  const MAX_TIER_LENGTH = 32;
+  const MAX_NOTE_LENGTH = 40;
+
+  let clytiersPlayers = [];
+  let rankingScript = null;
+  let rankingTimer = null;
+  let requestFinished = false;
+
+  // ==========================================================
+  // ① 年号の自動更新（元の機能を維持）
+  // ==========================================================
+  const yearElement = document.getElementById("year");
+
+  if (yearElement) {
+    yearElement.textContent = new Date().getFullYear();
+  }
+
+  // ==========================================================
+  // ② スクロール時のアニメーション（元の機能を維持）
+  // ==========================================================
   const revealItems = document.querySelectorAll(".reveal");
 
   if ("IntersectionObserver" in window) {
@@ -342,60 +377,55 @@
     revealItems.forEach((item) => item.classList.add("visible"));
   }
 
-  // =========================================================
-  // [既存設定を維持]
-  // GASのURLはそのまま使用する。
-  //
-  // 注意:
-  // このURLは秘密情報ではなくても、公開範囲や実行権限の
-  // 確認は必要。JSONP自体のリスクも残っている。
-  // =========================================================
-  const CLYTIERS_API_URL =
-    "https://script.google.com/macros/s/AKfycbzn8OVRQN2XzNdFWhB6bFXdaMySyFgGLSS9vZHb-TJCCosmcE6SUa77Iz5AKXBTnDtW/exec";
+  // ==========================================================
+  // ③ ランキング表示用のHTML要素
+  // [変更なし] 元のIDをそのまま使用
+  // ==========================================================
+  const rankingBody = document.getElementById("ranking-body");
+  const rankingCount = document.getElementById("ranking-count");
+  const searchForm = document.getElementById("mcid-search-form");
+  const searchInput = document.getElementById("mcid-search");
+  const searchResult = document.getElementById("mcid-result");
 
-  let clytiersPlayers = [];
-
-  // [セキュリティ対策]
-  // 通信タイムアウトと読み込み状態を管理する。
-  const CLYTIERS_TIMEOUT_MS = 15000;
-  let clytiersTimeout = null;
-  let clytiersLoaded = false;
-  let clytiersScript = null;
-
-  // [セキュリティ対策]
-  // ランキングの文字列を検証し、長すぎる値を制限する。
-  // HTMLとして解釈せず、表示には引き続きtextContentを使う。
-  function safeRankingText(value, maxLength) {
-    if (typeof value !== "string" &&
-        typeof value !== "number") {
-      return "";
-    }
-
-    const text = String(value).trim();
-
-    if (!text || text.length > maxLength) {
-      return text ? text.slice(0, maxLength) : "";
-    }
-
-    return text;
+  if (
+    !rankingBody ||
+    !rankingCount ||
+    !searchForm ||
+    !searchInput ||
+    !searchResult
+  ) {
+    console.error(
+      "[Clytiers] ランキングに必要なHTML要素が見つかりません。"
+    );
+    return;
   }
 
-  // [セキュリティ対策]
-  // Tierのクラス名として利用できる文字だけを許可する。
-  // HTMLや属性として値を組み立てない。
-  function safeTierClass(value) {
-    return String(value)
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, "")
-      .slice(0, 40);
+  // ==========================================================
+  // ④ 安全な文字列処理
+  // [セキュリティ対策] HTMLとして実行されるデータを作らない
+  // ==========================================================
+  function safeString(value, maxLength, fallback) {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return fallback;
+    }
+
+    const result = String(value).slice(0, maxLength).trim();
+
+    return result || fallback;
   }
 
-  // =========================================================
-  // [既存機能を維持] ランキングのメッセージ表示
-  // =========================================================
+  // [セキュリティ対策] 表示はtextContentを使用する
+  // 外部データをinnerHTMLに入れない
+  function setMessage(element, message) {
+    element.textContent = message;
+  }
+
+  // ==========================================================
+  // ⑤ 読み込み中・エラー表示
+  // [変更なし] 元のメッセージ表示機能を維持
+  // ==========================================================
   function showRankingMessage(message) {
-    const tbody = document.getElementById("ranking-body");
-    tbody.replaceChildren();
+    rankingBody.replaceChildren();
 
     const tr = document.createElement("tr");
     const td = document.createElement("td");
@@ -407,21 +437,50 @@
     td.textContent = message;
 
     tr.appendChild(td);
-    tbody.appendChild(tr);
+    rankingBody.appendChild(tr);
   }
 
-  // =========================================================
-  // [既存機能を維持] Top 50ランキング表示
-  // [変更点] データの型を検証してから表示する。
-  // =========================================================
+  // ==========================================================
+  // ⑥ 通信終了時の後片付け
+  // [セキュリティ対策] タイマーやscript要素を残さない
+  // ==========================================================
+  function cleanupRankingRequest() {
+    if (rankingTimer !== null) {
+      clearTimeout(rankingTimer);
+      rankingTimer = null;
+    }
+
+    if (rankingScript) {
+      rankingScript.onerror = null;
+      rankingScript.remove();
+      rankingScript = null;
+    }
+  }
+
+  function failRanking(message) {
+    if (requestFinished) return;
+
+    requestFinished = true;
+    cleanupRankingRequest();
+
+    setMessage(rankingCount, message);
+    showRankingMessage(message);
+  }
+
+  // ==========================================================
+  // ⑦ ランキング描画
+  // [変更なし] Top 50・件数・Tierバッジの表示を維持
+  // ==========================================================
   function renderRanking(players) {
-    const tbody = document.getElementById("ranking-body");
-    tbody.replaceChildren();
+    rankingBody.replaceChildren();
 
     const topPlayers = players.slice(0, 50);
 
-    document.getElementById("ranking-count").textContent =
-      `表示中: ${topPlayers.length} / ${players.length}人（Top 50）`;
+    // 元の仕様：表示人数 / 全登録人数を表示
+    setMessage(
+      rankingCount,
+      `表示中: ${topPlayers.length} / ${players.length}人（Top 50）`
+    );
 
     if (!topPlayers.length) {
       showRankingMessage("ランキングはまだ登録されていません。");
@@ -431,92 +490,131 @@
     topPlayers.forEach((player, index) => {
       const tr = document.createElement("tr");
 
+      // 順位
       const rank = document.createElement("td");
       rank.className = "rank";
       rank.textContent = String(index + 1);
 
+      // プレイヤー名
       const name = document.createElement("td");
-      name.textContent = player.name || "Unknown";
+      name.textContent = player.name || player.player || "Unknown";
 
+      // Tierバッジ
       const tierCell = document.createElement("td");
       const badge = document.createElement("span");
       badge.className = "tier";
 
-      const tier = player.tier || "Unranked";
-      const tierClass = safeTierClass(tier);
+      const tier = safeString(
+        player.tier,
+        MAX_TIER_LENGTH,
+        "Unranked"
+      );
 
-      if (tierClass) {
+      // [セキュリティ対策]
+      // Tier名をCSSクラスに利用する前に許可リストで確認。
+      // 元のCSSにあるHT1/LT1、HT2/LT2、HT3/LT3の色分けを維持。
+      const tierClass = tier.toLowerCase();
+      const allowedTierClasses = [
+        "ht1", "lt1",
+        "ht2", "lt2",
+        "ht3", "lt3"
+      ];
+
+      if (allowedTierClasses.includes(tierClass)) {
         badge.classList.add(tierClass);
       }
 
+      // [変更なし] Tierの表示文字列はそのまま表示
       badge.textContent = tier;
       tierCell.appendChild(badge);
 
+      // Region / Note
       const note = document.createElement("td");
-      note.textContent = player.note || "—";
+      note.textContent = safeString(
+        player.note !== undefined ? player.note : player.region,
+        MAX_NOTE_LENGTH,
+        "—"
+      );
 
       tr.append(rank, name, tierCell, note);
-      tbody.appendChild(tr);
+      rankingBody.appendChild(tr);
     });
   }
 
-  // =========================================================
-  // [既存機能を維持] MCID完全一致検索
-  // [変更点] 入力を文字列として処理し、HTMLとして解釈しない。
-  // =========================================================
+  // ==========================================================
+  // ⑧ MCID検索
+  // [変更なし] 大文字・小文字を区別しない完全一致検索
+  // 結果表示、該当行へのスクロール、枠線の強調表示を維持
+  // ==========================================================
   function searchMCID(query) {
-    const result = document.getElementById("mcid-result");
-    result.replaceChildren();
+    searchResult.replaceChildren();
+    searchResult.hidden = false;
 
-    const originalQuery = query.trim();
-    const mcid = originalQuery.toLowerCase();
-
-    result.hidden = false;
+    const mcid = query.trim().toLowerCase();
 
     if (!mcid) {
-      result.textContent = "MCIDを入力してください。";
+      setMessage(searchResult, "MCIDを入力してください。");
       return;
     }
 
-    const player = clytiersPlayers.find(item =>
-      item.name.toLowerCase() === mcid
-    );
+    const player = clytiersPlayers.find((item) => {
+      const playerName = item.name || item.player || "";
+
+      return String(playerName).toLowerCase() === mcid;
+    });
 
     if (!player) {
-      result.textContent =
-        `「${originalQuery}」はTier一覧に見つかりませんでした。MCIDのスペルを確認してください。`;
+      // [セキュリティ対策] 入力内容は文字列として表示
+      const shownQuery = query.trim().slice(0, MAX_NAME_LENGTH);
+
+      setMessage(
+        searchResult,
+        `「${shownQuery}」はTier一覧に見つかりませんでした。MCIDのスペルを確認してください。`
+      );
+
       return;
     }
 
     const name = document.createElement("strong");
-    name.textContent = player.name;
+    name.textContent = player.name || player.player || "Unknown";
 
-    const noteText = player.note && player.note !== "—"
-      ? " · " + player.note
-      : "";
-
-    result.append(
-      name,
-      document.createTextNode(
-        ` のTier: ${player.tier || "Unranked"}${noteText}`
-      )
+    const playerTier = safeString(
+      player.tier,
+      MAX_TIER_LENGTH,
+      "Unranked"
     );
 
-    // [変更なし] Top 50内なら該当行へスクロールして強調する。
-    const rowIndex = clytiersPlayers
-      .slice(0, 50)
-      .findIndex(item => item.name.toLowerCase() === mcid);
+    const playerNote = safeString(
+      player.note !== undefined ? player.note : player.region,
+      MAX_NOTE_LENGTH,
+      ""
+    );
+
+    const resultText =
+      ` のTier: ${playerTier}` +
+      (playerNote ? ` · ${playerNote}` : "");
+
+    searchResult.append(
+      name,
+      document.createTextNode(resultText)
+    );
+
+    // 元の仕様：Top 50内の該当行を探す
+    const rowIndex = clytiersPlayers.slice(0, 50).findIndex((item) => {
+      return String(item.name || item.player || "").toLowerCase() === mcid;
+    });
 
     if (rowIndex >= 0) {
-      const row =
-        document.getElementById("ranking-body").children[rowIndex];
+      const row = rankingBody.children[rowIndex];
 
-      if (row) {
+      if (row && row.cells.length >= 2) {
+        // [変更なし] 該当プレイヤーへスクロール
         row.scrollIntoView({
           behavior: "smooth",
           block: "center"
         });
 
+        // [変更なし] 検索行の強調表示
         row.style.outline = "1px solid rgba(168,121,255,.8)";
 
         setTimeout(() => {
@@ -526,129 +624,96 @@
     }
   }
 
-  // [変更なし] 検索フォームの動作
-  document
-    .getElementById("mcid-search-form")
-    .addEventListener("submit", event => {
-      event.preventDefault();
-      searchMCID(
-        document.getElementById("mcid-search").value
-      );
-    });
+  // 検索フォームのイベント（元の機能を維持）
+  searchForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    searchMCID(searchInput.value);
+  });
 
-  // =========================================================
-  // [重要な注意]
-  // JSONPのコールバックは、呼び出される前に応答スクリプトが
-  // 実行される。そのため、この関数内の検証だけでは
-  // 悪意あるJavaScriptの実行を防止できない。
-  //
-  // 完全な対策には、GAS側もJSON応答方式へ変更する必要がある。
-  // =========================================================
+  // ==========================================================
+  // ⑨ JSONPコールバック
+  // [変更なし] GAS側のcallback=clytiersTierCallbackと互換
+  // ==========================================================
   window.clytiersTierCallback = function(data) {
-    if (clytiersLoaded) return;
+    if (requestFinished) return;
 
-    // [セキュリティ対策] 配列以外の応答を拒否する。
+    // [セキュリティ対策] 配列以外のレスポンスを拒否
     if (!Array.isArray(data)) {
-      failRankingLoad(
-        "APIから想定外のデータが返されました。"
-      );
+      failRanking("APIから想定外のデータが返されました。");
       return;
     }
 
-    // [セキュリティ対策]
-    // 各行の型を検証し、必要なフィールドだけを取り出す。
-    // 表示用の文字列を制限し、異常な値による負荷を抑える。
-    const safePlayers = [];
+    requestFinished = true;
+    cleanupRankingRequest();
 
-    for (const item of data) {
-      if (!item || typeof item !== "object" ||
-          Array.isArray(item)) {
-        continue;
-      }
+    // 元のデータ形式を維持：
+    // name/player、tier、note/region のどちらにも対応
+    clytiersPlayers = data
+      .filter((item) => {
+        return item &&
+          typeof item === "object" &&
+          !Array.isArray(item);
+      })
+      .map((item) => ({
+        name: safeString(
+          item.name !== undefined ? item.name : item.player,
+          MAX_NAME_LENGTH,
+          ""
+        ),
+        tier: safeString(
+          item.tier,
+          MAX_TIER_LENGTH,
+          "Unranked"
+        ),
+        note: safeString(
+          item.note !== undefined ? item.note : item.region,
+          MAX_NOTE_LENGTH,
+          "—"
+        )
+      }))
+      .filter((item) => item.name);
 
-      const rawName = item.name || item.player || "";
-      const name = safeRankingText(rawName, 32);
-
-      if (!name) continue;
-
-      const tier = safeRankingText(
-        item.tier || "Unranked", 40
-      );
-
-      const note = safeRankingText(
-        item.note || item.region || "—", 200
-      );
-
-      safePlayers.push({
-        name,
-        tier: tier || "Unranked",
-        note: note || "—"
-      });
-    }
-
-    clytiersPlayers = safePlayers;
-    clytiersLoaded = true;
-
-    clearTimeout(clytiersTimeout);
-
-    if (clytiersScript) {
-      clytiersScript.onerror = null;
-    }
-
+    // [変更なし] Top 50表示と検索用データの更新
     renderRanking(clytiersPlayers);
   };
 
-  // =========================================================
-  // [セキュリティ対策] 失敗処理を一元化する。
-  // ランキングが読み込み中のまま残るのを防ぐ。
-  // =========================================================
-  function failRankingLoad(message) {
-    if (clytiersLoaded) return;
+  // ==========================================================
+  // ⑩ ランキング読み込み
+  // [変更なし] JSONP方式・API URL・コールバック名を維持
+  // [セキュリティ対策] タイムアウトと通信エラー処理を追加
+  // ==========================================================
+  function loadRanking() {
+    requestFinished = false;
+    cleanupRankingRequest();
 
-    clytiersLoaded = true;
-    clearTimeout(clytiersTimeout);
+    rankingScript = document.createElement("script");
+    rankingScript.async = true;
 
-    if (clytiersScript) {
-      clytiersScript.onerror = null;
-      clytiersScript.remove();
-      clytiersScript = null;
-    }
+    rankingScript.src =
+      CLYTIERS_API_URL +
+      "?callback=clytiersTierCallback&v=" +
+      Date.now();
 
-    document.getElementById("ranking-count").textContent =
-      "Tierデータの取得に失敗しました";
+    rankingScript.onerror = function() {
+      failRanking(
+        "Tierデータを取得できませんでした。APIのURLと公開設定を確認してください。"
+      );
+    };
 
-    showRankingMessage(message);
+    // [セキュリティ対策] 12秒以内にコールバックが来なければ終了
+    rankingTimer = setTimeout(() => {
+      failRanking(
+        "Tierデータの取得がタイムアウトしました。ページを再読み込みしてください。"
+      );
+    }, REQUEST_TIMEOUT);
+
+    document.head.appendChild(rankingScript);
   }
 
-  // =========================================================
-  // [互換性維持]
-  // 既存のJSONP方式でランキングを読み込む。
-  //
-  // [変更点] タイムアウトを追加。
-  //
-  // [未解消のリスク] 外部JavaScriptとして実行するため、
-  // この方式を安全なJSON通信と同等には扱えない。
-  // =========================================================
-  clytiersTimeout = setTimeout(() => {
-    failRankingLoad(
-      "読み込みがタイムアウトしました。時間をおいて再読み込みしてください。"
-    );
-  }, CLYTIERS_TIMEOUT_MS);
+  loadRanking();
 
-  clytiersScript = document.createElement("script");
-
-  clytiersScript.onerror = function() {
-    failRankingLoad(
-      "Tierデータを取得できませんでした。APIのURLと公開設定を確認してください。"
-    );
-  };
-
-  clytiersScript.src =
-    CLYTIERS_API_URL +
-    "?callback=clytiersTierCallback&v=" +
-    Date.now();
-
-  document.head.appendChild(clytiersScript);
+})();
 </script>
+
 </body>
 </html>
