@@ -335,7 +335,7 @@
     }
 
     // Google Apps Script WebアプリのURL（TierListシートをJSONPで公開）
-    const CLYTIERS_API_URL = "https://script.google.com/macros/s/AKfycbzn8OVRQN2XzNdFWhB6bFXdaMySyFgGLSS9vZHb-TJCCosmcE6SUa77Iz5AKXBTnDtW/exec";
+    const CLYTIERS_API_URL = "https://script.google.com/macros/s/AKfycbwUHTnhho-kTsWxxsI9PyF3MhDocJNq2QFdE_llAuwkXSbJLNpNzorlPkNEN_ZstQP_/exec";
     let clytiersPlayers = [];
 
     function showRankingMessage(message) {
